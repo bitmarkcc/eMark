@@ -14,7 +14,7 @@ using namespace std;
 extern void TxToJSON(const CTransaction& tx, const uint256 hashBlock, json_spirit::Object& entry);
 extern enum Checkpoints::CPMode CheckpointsMode;
 
-double GetDifficulty(const CBlockIndex* blockindex)
+double GetDifficulty(const CBlockIndex* blockindex, int algo, bool next)
 {
     // Floating point number that is a multiple of the minimum difficulty,
     // minimum difficulty = 1.0.
@@ -22,14 +22,40 @@ double GetDifficulty(const CBlockIndex* blockindex)
     {
         if (pindexBest == NULL)
             return 1.0;
-        else
-            blockindex = GetLastBlockIndex(pindexBest, false);
+	else if (algo<0)
+	  blockindex = GetLastBlockIndex(pindexBest, false);
+	else
+	  blockindex = pindexBest;
     }
 
-    int nShift = (blockindex->nBits >> 24) & 0xff;
+    if (algo<0) {
+      if (blockindex->IsProofOfStake()) {
+	algo = 1;
+      }
+      else {
+	algo = 0;
+      }
+    }
+    unsigned int nBits = 0;
+    bool fProofOfStake = false;
+    if (algo == 1) {
+      fProofOfStake = true;
+    }
+    if (next) {
+      nBits = GetNextTargetRequired(blockindex,fProofOfStake);
+    }
+    else {
+      bool pos_tip = blockindex->IsProofOfStake();
+      if (pos_tip != fProofOfStake) {
+	blockindex = GetLastBlockIndex(blockindex,fProofOfStake);
+      }
+      nBits = blockindex->nBits;
+    }
+    
+    int nShift = (nBits >> 24) & 0xff;
 
     double dDiff =
-        (double)0x0000ffff / (double)(blockindex->nBits & 0x00ffffff);
+        (double)0x0000ffff / (double)(nBits & 0x00ffffff);
 
     while (nShift < 29)
     {
@@ -43,6 +69,183 @@ double GetDifficulty(const CBlockIndex* blockindex)
     }
 
     return dDiff;
+}
+
+double GetPeakHashrate (const CBlockIndex* blockindex, int algo) {
+  const int nBlocksDay = 720;
+  if (blockindex == NULL) {
+      if (pindexBest == NULL)
+	return 0.;
+      else
+	blockindex = pindexBest;
+  }
+  bool pos = false;
+  if (algo == 1) pos = true;
+  bool posTip = blockindex->IsProofOfStake();
+  int algoTip = posTip ? 1 : 0;
+  if (algoTip != algo) {
+    blockindex = GetPrevBlockIndex(blockindex,algo);
+  }
+  if (!blockindex) return 0.;
+  do {
+    if ((blockindex->nHeight % 1440) == 0) {
+      double hashes_peak = 0.;
+      const CBlockIndex * pprev_algo = GetPrevBlockIndex(blockindex,algo);
+      for (int i=0; i<365; i++) {
+	if (!pprev_algo) break;
+	int time_f = pprev_algo->GetMedianTimePast();
+	CBigNum hashes_bn = CBigNum(pprev_algo->GetBlockTrust());
+	int time_i = 0;
+	
+	for (int j=0; j<nBlocksDay-1; j++) {
+	 
+	  pprev_algo = GetPrevBlockIndex(pprev_algo,-1);
+
+	  if (pprev_algo) {
+	    time_i = pprev_algo->GetMedianTimePast();
+	  }
+	  else {
+	    hashes_bn = CBigNum(0);
+	    break;
+	  }
+	  //LogPrintf("j=%d add block work of block %lu\n",j,pprev_algo->nHeight);
+	  hashes_bn += CBigNum(pprev_algo->GetBlockTrust());
+	}
+	const CBlockIndex * pprev_algo_time = GetPrevBlockIndex(pprev_algo,-1);
+	if (pprev_algo_time) {
+	  time_i = pprev_algo_time->GetMedianTimePast();
+	}
+	else {
+	  const CBlockIndex * blockindex_time = pprev_algo;
+	  while (blockindex_time && blockindex_time->nHeight>=1) {
+	    blockindex_time = blockindex_time->pprev;
+	  }
+	  if (blockindex_time) {
+	    time_i = blockindex_time->GetBlockTime();
+	  }
+	}
+	pprev_algo = pprev_algo_time;
+	
+	if (time_f>time_i) {
+	  time_f -= time_i;
+	}
+	else {
+	  return std::numeric_limits<double>::max();
+	}
+	//LogPrintf("hashes = %f, time = %f\n",(double)hashes_bn.getulong(),(double)time_f);
+	double hashes = (hashes_bn/time_f).getuint256().getdouble();
+	//LogPrintf("hashes per sec = %f\n",hashes);
+	if (hashes>hashes_peak) hashes_peak = hashes;
+      }
+      return hashes_peak;
+      break;
+    }
+    blockindex = blockindex->pprev;
+  } while (blockindex);
+  return 0.;
+}
+
+double GetCurrentHashrate (const CBlockIndex* blockindex, int algo) {
+  const int nBlocksDay = 720;
+  if (blockindex == NULL)
+    {
+      if (pindexBest == NULL)
+	return 0.;
+      else
+	blockindex = pindexBest;
+    }
+  
+  bool pos = false;
+  if (algo == 1) pos = true;
+  bool pos_tip = blockindex->IsProofOfStake();
+  int algo_tip = pos_tip ? 1 : 0;
+  if (algo_tip != algo) {
+    blockindex = GetPrevBlockIndex(blockindex,pos);
+  }
+  if (!blockindex) {
+    return 0.;
+  }
+  do {
+    if ((blockindex->nHeight % 1440) == 0) {
+      const CBlockIndex * pcur_algo = GetPrevBlockIndex(blockindex,algo);
+      if (!pcur_algo) return 0.;
+      int time_f = pcur_algo->GetMedianTimePast();
+      CBigNum hashes_bn = CBigNum(pcur_algo->GetBlockTrust());
+      int time_i = 0;
+      const CBlockIndex * pprev_algo = pcur_algo;
+      for (int j=0; j<nBlocksDay-1; j++) {
+	pprev_algo = GetPrevBlockIndex(pprev_algo,-1);
+	if (pprev_algo) {
+	  time_i = pprev_algo->GetMedianTimePast();
+	}
+	else {
+	  return 0.;
+	}
+	hashes_bn += CBigNum(pprev_algo->GetBlockTrust());
+      }
+      const CBlockIndex * pprev_algo_time = GetPrevBlockIndex(pprev_algo,-1);
+      if (pprev_algo_time) {
+	time_i = pprev_algo_time->GetMedianTimePast();
+      }
+      else {
+	const CBlockIndex * blockindex_time = pprev_algo;
+	while (blockindex_time && blockindex_time->nHeight>=1) {
+	  blockindex_time = blockindex_time->pprev;
+	}
+	if (blockindex_time) time_i = blockindex_time->GetBlockTime();
+      }
+
+      if (time_f>time_i) {
+	time_f -= time_i;
+      }
+      else {
+	return std::numeric_limits<double>::max();
+      }
+      return (hashes_bn/time_f).getuint256().getdouble();
+    }
+    blockindex = blockindex->pprev;
+  } while (blockindex);
+  return 0.;
+}
+
+double GetAverageBlockSpacing (const CBlockIndex * blockindex, const int algo, const int averagingInterval) {
+  
+  if (averagingInterval <= 1) return 0.;
+
+  if (blockindex == NULL) {
+    if (pindexBest == NULL)
+      return 0.;
+    else
+      blockindex = pindexBest;
+  }
+  
+  const CBlockIndex *BlockReading = blockindex;
+  int64_t CountBlocks = 0;
+  int64_t nActualTimespan = 0;
+  int64_t LastBlockTime = 0;
+
+  bool pos = false;
+  if (algo == 1) pos = true;
+  
+  for (unsigned int i = 1; BlockReading && BlockReading->nHeight > 0; i++) {
+    if (CountBlocks >= averagingInterval) { break; }
+    bool block_pos = BlockReading->IsProofOfStake();
+    if (algo >=0 && block_pos != pos) {
+      BlockReading = BlockReading->pprev;
+      continue;
+    }
+    CountBlocks++;
+    if(LastBlockTime > 0){
+      nActualTimespan = LastBlockTime - BlockReading->GetMedianTimePast();
+    }
+    else {
+      LastBlockTime = BlockReading->GetMedianTimePast();
+    }
+
+    BlockReading = BlockReading->pprev;
+    
+  }
+  return ((double)nActualTimespan)/((double)averagingInterval)/60.;
 }
 
 double GetPoWMHashPS()
@@ -70,6 +273,61 @@ double GetPoWMHashPS()
     }
 
     return GetDifficulty() * 4294.967296 / nTargetSpacingWork;
+}
+
+double GetNetworkHashPS(int lookup, int height, int algo) {
+  if (lookup == -1) return GetPoWMHashPS();
+    CBlockIndex *pb = pindexBest;
+
+    if (height >= 0 && height <pindexBest->nHeight) {
+      while (pb != 0 && pb->nHeight > height) {
+	pb = pb->pprev;
+      }
+    }
+
+    if (pb == NULL || !pb->nHeight)
+        return 0;
+
+    // If lookup is -1, then use blocks since last difficulty change.
+    if (lookup <= 0)
+        lookup = pb->nHeight % 2016 + 1;
+
+    // If lookup is larger than chain, then set it to chain length.
+    if (lookup > pb->nHeight)
+        lookup = pb->nHeight;
+
+    const CBlockIndex *pb0 = pb;
+    bool pos = false;
+    if (algo == 1) pos = true;
+    bool pos_tip = pb0->IsProofOfStake();
+    if (pos_tip != pos) {
+      pb0 = GetPrevBlockIndex(pb0,algo);
+    }
+    if (!pb0) return 0.;
+    int64_t minTime = pb0->GetBlockTime();
+    int64_t maxTime = minTime;
+    CBigNum hashes_bn = CBigNum(pb0->GetBlockTrust());
+    for (int i = 0; i < lookup; i++) {
+        pb0 = pb0->pprev;
+	if (!pb0) break;
+	if (pb0->IsProofOfStake()!=pos) {
+	  lookup++;
+	  continue;
+	}
+        int64_t time = pb0->GetBlockTime();
+        minTime = std::min(time, minTime);
+        maxTime = std::max(time, maxTime);
+	hashes_bn += CBigNum(pb0->GetBlockTrust());
+    }
+
+    // In case there's a situation where minTime == maxTime, we don't want a divide by zero exception.
+    if (minTime == maxTime)
+        return 0;
+
+    //uint256 workDiff = pb->nChainWork - pb0->nChainWork;
+    int64_t timeDiff = maxTime - minTime;
+
+    return ((hashes_bn.getuint256().getdouble()) / ((double)timeDiff));
 }
 
 double GetPoSKernelPS()
@@ -122,6 +380,7 @@ Object blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool fPri
     result.push_back(Pair("merkleroot", block.hashMerkleRoot.GetHex()));
     result.push_back(Pair("mint", ValueFromAmount(blockindex->nMint)));
     result.push_back(Pair("time", (int64_t)block.GetBlockTime()));
+    result.push_back(Pair("mediantime", (int64_t)(blockindex->GetMedianTimePast())));
     result.push_back(Pair("nonce", (uint64_t)block.nNonce));
     result.push_back(Pair("bits", strprintf("%08x", block.nBits)));
     result.push_back(Pair("difficulty", GetDifficulty(blockindex)));
@@ -180,20 +439,53 @@ Value getblockcount(const Array& params, bool fHelp)
     return nBestHeight;
 }
 
+Value getdifficulty (const Array& params, bool fHelp) {
+  if (fHelp || params.size() > 3)
+    throw runtime_error(
+			"getdifficulty ( algo height next )\n"
+			"Returns an object containing difficulty info.\n"
+				    "\nArguments:\n"
+	    "1. \"algo\"     (numeric, optional) The algo, (miningalgo) by default\n"
+	    "2. \"height\"     (numeric, optional) The height to look at, tip by default\n"
+	    "3. \"next\"     (boolean, optional) Whether to get next difficulty required, false by default\n"
+	    "\nResult:\n"
+	    "{\n"
+	    " \"difficulty\": xxxxx           (numeric)\n"
+	    "}\n"
+			);
 
-Value getdifficulty(const Array& params, bool fHelp)
-{
-    if (fHelp || params.size() != 0)
-        throw runtime_error(
-            "getdifficulty\n"
-            "Returns the difficulty as a multiple of the minimum difficulty.");
+  int algo = -1;
+  CBlockIndex * blockindex = NULL;
+  bool next = false;
 
-    Object obj;
+  bool v2 = false;
+  if (params.size()>0) {
+    v2 = true;
+    algo = params[0].get_int();
+    if (params.size()>1) {
+      int height = params[1].get_int();
+      blockindex = pindexBest;
+      if (height >= 0) {
+	while (blockindex && blockindex->nHeight > height) {
+	  blockindex = blockindex->pprev;
+	}
+      }
+      if (params.size()>2) {
+	next = params[2].get_bool();
+      }
+    }
+  }
+
+  Object obj;
+  if (v2) {
+    obj.push_back(Pair("difficulty",(double)GetDifficulty(blockindex,algo,next)));
+  }
+  else {
     obj.push_back(Pair("proof-of-work",        GetDifficulty()));
     obj.push_back(Pair("proof-of-stake",       GetDifficulty(GetLastBlockIndex(pindexBest, true))));
-    return obj;
+  }
+  return obj;
 }
-
 
 Value getrawmempool(const Array& params, bool fHelp)
 {
@@ -303,4 +595,82 @@ Value getcheckpoint(const Array& params, bool fHelp)
         result.push_back(Pair("checkpointmaster", true));
 
     return result;
+}
+
+Value chaindynamics(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() > 1)
+        throw runtime_error(
+            "chaindynamics (height)\n"
+            "Returns an object containing various state info.\n"
+            "}\n"
+	    "\nResult:\n"
+	    "{\n"
+	    " \"difficulty <algo>\": xxxxx           (numeric),\n"
+	    " \"peak hashrate <algo>\": xxxxx           (numeric),\n"
+	    " \"current hashrate <algo>\": xxxxx           (numeric),\n"
+	    " \"average block spacing <algo>\": xxxxx           (numeric)\n"
+	    "}\n"
+        );
+
+    CBlockIndex * pindex = 0;
+    if (params.size()>0) {
+      int height = params[0].get_int();
+      pindex = pindexBest;
+      while (pindex && pindex->nHeight > height)
+        pindex = pindex->pprev;
+    }    
+    
+    Object obj;
+
+    obj.push_back(Pair("difficulty SHA256D",    (double)GetDifficulty(pindex,0,true)));
+    obj.push_back(Pair("difficulty PoS",    (double)GetDifficulty(pindex,1,true)));
+    obj.push_back(Pair("peak hashrate SHA256D",    (double)GetPeakHashrate(pindex,0)));
+    obj.push_back(Pair("peak hashrate PoS",    (double)GetPeakHashrate(pindex,1)));
+    obj.push_back(Pair("current hashrate SHA256D",    (double)GetCurrentHashrate(pindex,0)));    
+    obj.push_back(Pair("current hashrate PoS",    (double)GetCurrentHashrate(pindex,1)));
+    obj.push_back(Pair("average block spacing",    (double)GetAverageBlockSpacing(pindex,-1)));
+    obj.push_back(Pair("average block spacing SHA256D",    (double)GetAverageBlockSpacing(pindex,0)));    
+    obj.push_back(Pair("average block spacing PoS",    (double)GetAverageBlockSpacing(pindex,1)));
+
+    return obj;
+}
+
+Value getblockspacing(const Array& params, bool fHelp)
+{
+    if (fHelp)
+        throw runtime_error(
+            "getblockspacing (algo interval height )\n"
+            "Returns an object containing blockspacing info.\n"
+	    "\nArguments:\n"
+	    "1. \"algo\"     (numeric, optional) The algo (-1) by default\n"
+            "2. \"interval\"     (numeric, optional) The interval in number of blocks, 25 by default\n"
+	    "3. \"height\"     (numeric, optional) The height for the endpoint of the interval, tip by default\n"	    
+	    "\nResult:\n"
+	    "{\n"
+	    "  \"average block spacing\": xxxxx           (numeric)\n"
+	    "}\n"
+			    );
+
+    int algo = -1;
+    int interval = 25;
+    CBlockIndex * blockindex = NULL;
+    
+    if (params.size()>0) {
+      algo = params[0].get_int();
+      if (params.size()>1) {
+	interval = params[1].get_int();
+	if (params.size()>2) {
+	  int height = params[2].get_int();
+	  blockindex = pindexBest;
+	  while (blockindex && blockindex->nHeight > height)
+	    blockindex = blockindex->pprev;
+	}
+      }
+    }
+    
+    Object obj;
+    obj.push_back(Pair("average block spacing",    (double)GetAverageBlockSpacing(blockindex,algo,interval)));
+
+    return obj;
 }

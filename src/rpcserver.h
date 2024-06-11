@@ -79,9 +79,13 @@ extern void ShutdownRPCMining();
 extern int64_t nWalletUnlockTime;
 extern int64_t AmountFromValue(const json_spirit::Value& value);
 extern json_spirit::Value ValueFromAmount(int64_t amount);
-extern double GetDifficulty(const CBlockIndex* blockindex = NULL);
+extern double GetDifficulty(const CBlockIndex* blockindex = NULL, int algo=-1, bool next=false);
+extern double GetPeakHashrate (const CBlockIndex* blockindex, int algo = 0);
+extern double GetCurrentHashrate (const CBlockIndex* blockindex, int algo = 0);
+extern double GetAverageBlockSpacing (const CBlockIndex * blockindex, const int algo = -1, const int averagingInterval = 25);
 
 extern double GetPoWMHashPS();
+extern double GetNetworkHashPS(int lookup = -1, int height = -1, int algo = -1);
 extern double GetPoSKernelPS();
 
 extern std::string HelpRequiringPassphrase();
@@ -177,5 +181,8 @@ extern json_spirit::Value getblockhash(const json_spirit::Array& params, bool fH
 extern json_spirit::Value getblock(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getblockbynumber(const json_spirit::Array& params, bool fHelp);
 extern json_spirit::Value getcheckpoint(const json_spirit::Array& params, bool fHelp);
+
+extern json_spirit::Value chaindynamics(const json_spirit::Array& params, bool fHelp);
+extern json_spirit::Value getblockspacing(const json_spirit::Array& params, bool fHelp);
 
 #endif

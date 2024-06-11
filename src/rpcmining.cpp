@@ -79,12 +79,12 @@ Value getstakesubsidy(const Array& params, bool fHelp)
 
 Value getnetworkhashps(const Array& params, bool fHelp)
 {
-    if (fHelp || params.size() != 0)
+    if (fHelp || params.size() > 3)
         throw runtime_error(
-            "getnetworkhashps ( blocks height )\n"
+            "getnetworkhashps ( blocks height algo )\n"
             "\nReturns the estimated network hashes per second based on the last n blocks.\n"
        );
-    return GetPoWMHashPS();
+    return GetNetworkHashPS(params.size() > 0 ? params[0].get_int() : -1, params.size() > 1 ? params[1].get_int() : -1, params.size() > 2 ? params[2].get_int() : 0);
 }
 Value getmininginfo(const Array& params, bool fHelp)
 {

@@ -1068,6 +1068,27 @@ const CBlockIndex* GetLastBlockIndex(const CBlockIndex* pindex, bool fProofOfSta
     return pindex;
 }
 
+const CBlockIndex* GetPrevBlockIndex(const CBlockIndex* pindex, int algo)
+{
+  if (!pindex) return 0;
+  bool pos = pindex->IsProofOfStake();
+  if (algo<0) { 
+    algo = pos ? 1 : 0;
+  }
+  else if (algo==0) {
+    pos = false;
+  }
+  else {
+    pos = true;
+  }
+  CBlockIndex* pprev = pindex->pprev;
+  while (pprev) {
+    if (pprev->IsProofOfStake() == pos) return pprev;
+    pprev = pprev->pprev;
+  }
+  return 0;
+}
+
 unsigned int GetNextTargetRequiredV1(const CBlockIndex* pindexLast, bool fProofOfStake)
 {
     CBigNum bnTargetLimit = fProofOfStake ? bnProofOfStakeLimit : Params().ProofOfWorkLimit();
@@ -1103,15 +1124,18 @@ static unsigned int GetNextTargetRequiredV2(const CBlockIndex* pindexLast, bool 
 {
     CBigNum bnTargetLimit = fProofOfStake ? GetProofOfStakeLimit(pindexLast->nHeight) : Params().ProofOfWorkLimit();
 
-    if (pindexLast == NULL)
+    if (pindexLast == NULL) {
         return bnTargetLimit.GetCompact(); // genesis block
+    }
 
     const CBlockIndex* pindexPrev = GetLastBlockIndex(pindexLast, fProofOfStake);
-    if (pindexPrev->pprev == NULL)
+    if (pindexPrev->pprev == NULL) {
         return bnTargetLimit.GetCompact(); // first block
+    }
     const CBlockIndex* pindexPrevPrev = GetLastBlockIndex(pindexPrev->pprev, fProofOfStake);
-    if (pindexPrevPrev->pprev == NULL)
+    if (pindexPrevPrev->pprev == NULL) {
         return bnTargetLimit.GetCompact(); // second block
+    }
 
     int64_t nTargetSpacing = nStakeTargetSpacing;
     int64_t nActualSpacing = pindexPrev->GetBlockTime() - pindexPrevPrev->GetBlockTime();
@@ -1128,7 +1152,7 @@ static unsigned int GetNextTargetRequiredV2(const CBlockIndex* pindexLast, bool 
 
     if (bnNew <= 0 || bnNew > bnTargetLimit)
         bnNew = bnTargetLimit;
-
+    
     return bnNew.GetCompact();
 }
 

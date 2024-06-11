@@ -24,6 +24,7 @@ class CTransaction;
 
 static const unsigned int MAX_SCRIPT_ELEMENT_SIZE = 520; // bytes
 static const unsigned int MAX_OP_RETURN_RELAY = 40;      // bytes
+static const unsigned int LOCKTIME_THRESHOLD = 500000000;
 
 /** Signature hash types/flags */
 enum
@@ -40,6 +41,7 @@ enum
     SCRIPT_VERIFY_NONE      = 0,
     SCRIPT_VERIFY_NOCACHE   = (1U << 0), // do not store results in signature cache (but do query it)
     SCRIPT_VERIFY_NULLDUMMY = (1U << 1), // verify dummy stack item consumed by CHECKMULTISIG is of zero-length
+    SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY = (1U << 2),
 };
 
 // Mandatory script verification flags that all new blocks must comply with for
@@ -53,7 +55,8 @@ static const unsigned int MANDATORY_SCRIPT_VERIFY_FLAGS = SCRIPT_VERIFY_NONE;
 // with. However scripts violating these flags may still be present in valid
 // blocks and we must accept those blocks.
 static const unsigned int STANDARD_SCRIPT_VERIFY_FLAGS = MANDATORY_SCRIPT_VERIFY_FLAGS |
-                                                         SCRIPT_VERIFY_NULLDUMMY;
+                                                         SCRIPT_VERIFY_NULLDUMMY |
+                                                         SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
 
 // For convenience, standard but not mandatory verify flags.
 static const unsigned int STANDARD_NOT_MANDATORY_VERIFY_FLAGS = STANDARD_SCRIPT_VERIFY_FLAGS & ~MANDATORY_SCRIPT_VERIFY_FLAGS;
