@@ -561,12 +561,15 @@ bool CTransaction::CheckTransaction() const
     for (unsigned int i = 0; i < vout.size(); i++)
     {
         const CTxOut& txout = vout[i];
-        if (txout.IsEmpty() && !IsCoinBase() && !IsCoinStake())
+        if (!simple && txout.IsEmpty() && !IsCoinBase() && !IsCoinStake()) {
             return DoS(100, error("CTransaction::CheckTransaction() : txout empty for user transaction"));
-        if (txout.nValue < 0)
+	}
+        if (txout.nValue < 0) {
             return DoS(100, error("CTransaction::CheckTransaction() : txout.nValue negative"));
-        if (txout.nValue > MAX_MONEY)
+	}
+        if (txout.nValue > MAX_MONEY) {
             return DoS(100, error("CTransaction::CheckTransaction() : txout.nValue too high"));
+	}
         nValueOut += txout.nValue;
         if (!MoneyRange(nValueOut))
             return DoS(100, error("CTransaction::CheckTransaction() : txout total out of range"));

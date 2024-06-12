@@ -30,6 +30,7 @@ LIBS += \
    -l boost_program_options$(BOOST_LIB_SUFFIX) \
    -l boost_thread$(BOOST_LIB_SUFFIX) \
    -l boost_chrono$(BOOST_LIB_SUFFIX) \
+   -l boost_unit_test_framework$(BOOST_LIB_SUFFIX) \
    -l db_cxx$(BDB_LIB_SUFFIX) \
    -l ssl \
    -l crypto
@@ -38,7 +39,7 @@ ifndef USE_UPNP
 	override USE_UPNP = -
 endif
 ifneq (${USE_UPNP}, -)
-	LIBS += -l miniupnpc
+	LIBS += -l miniupnpc	
 	DEFS += -DUSE_UPNP=$(USE_UPNP)
 endif
 
@@ -47,7 +48,6 @@ LIBS+= \
    -l z \
    -l dl \
    -l pthread
-
 
 # Hardening
 # Make some classes of vulnerabilities unexploitable in case one is discovered.
@@ -137,12 +137,57 @@ OBJS= \
     obj/pbkdf2.o \
     obj/chainparams.o
 
+TOBJS= \
+    test/test_eMark.o \
+    test/script_tests.o \
+    test/transaction_tests.o
+
+TOBJSDEP= \
+    obj/version.o \
+    obj/checkpoints.o \
+    obj/netbase.o \
+    obj/addrman.o \
+    obj/crypter.o \
+    obj/key.o \
+    obj/init.o \
+    obj/keystore.o \
+    obj/core.o \
+    obj/main.o \
+    obj/net.o \
+    obj/protocol.o \
+    obj/rpcclient.o \
+    obj/rpcprotocol.o \
+    obj/rpcserver.o \
+    obj/rpcmisc.o \
+    obj/rpcnet.o \
+    obj/rpcblockchain.o \
+    obj/rpcrawtransaction.o \
+    obj/timedata.o \
+    obj/script.o \
+    obj/sync.o \
+    obj/txmempool.o \
+    obj/util.o \
+    obj/hash.o \
+    obj/bloom.o \
+    obj/noui.o \
+    obj/kernel.o \
+    obj/pbkdf2.o \
+    obj/chainparams.o
+
 ifeq (${USE_WALLET}, 1)
     DEFS += -DENABLE_WALLET
     OBJS += \
         obj/db.o \
         obj/miner.o \
-        obj/rpcdump.o \
+	obj/rpcdump.o \
+        obj/rpcmining.o \
+        obj/rpcwallet.o \
+        obj/wallet.o \
+        obj/walletdb.o
+    TOBJSDEP += \
+        obj/db.o \
+        obj/miner.o \
+	obj/rpcdump.o \
         obj/rpcmining.o \
         obj/rpcwallet.o \
         obj/wallet.o \
@@ -151,10 +196,13 @@ endif
 
 all: eMarkd
 
+test: test_eMarkd
+
 LIBS += $(CURDIR)/leveldb/libleveldb.a $(CURDIR)/leveldb/libmemenv.a
 DEFS += $(addprefix -I,$(CURDIR)/leveldb/include)
 DEFS += $(addprefix -I,$(CURDIR)/leveldb/helpers)
 OBJS += obj/txdb-leveldb.o
+TOBJSDEP += obj/txdb-leveldb.o
 leveldb/libleveldb.a:
 	@echo "Building LevelDB ..."; cd leveldb; EXTRA_CXXFLAGS="$(LEVELDB_FLAG)" make libleveldb.a libmemenv.a; cd ..;
 obj/txdb-leveldb.o: leveldb/libleveldb.a
@@ -174,8 +222,46 @@ obj/%.o: %.cpp
 	      -e '/^$$/ d' -e 's/$$/ :/' < $(@:%.o=%.d) >> $(@:%.o=%.P); \
 	  rm -f $(@:%.o=%.d)
 
+test/data/tx_invalid.json.h: test/data/tx_invalid.json
+	@mkdir -p $(@D)
+	@echo "namespace json_tests{" > $@
+	@echo "static unsigned const char tx_invalid[] = {" >> $@
+	@hexdump -v -e '8/1 "0x%02x, "' -e '"\n"' $< | sed -e 's/0x  ,//g' >> $@
+	@echo "};};" >> $@
+	@echo "Generated $@"
+
+test/data/tx_valid.json.h: test/data/tx_valid.json
+	@mkdir -p $(@D)
+	@echo "namespace json_tests{" > $@
+	@echo "static unsigned const char tx_valid[] = {" >> $@
+	@hexdump -v -e '8/1 "0x%02x, "' -e '"\n"' $< | sed -e 's/0x  ,//g' >> $@
+	@echo "};};" >> $@
+	@echo "Generated $@"
+
+test/data/script_invalid.json.h: test/data/script_invalid.json
+	@mkdir -p $(@D)
+	@echo "namespace json_tests{" > $@
+	@echo "static unsigned const char script_invalid[] = {" >> $@
+	@hexdump -v -e '8/1 "0x%02x, "' -e '"\n"' $< | sed -e 's/0x  ,//g' >> $@
+	@echo "};};" >> $@
+	@echo "Generated $@"
+
+test/data/script_valid.json.h: test/data/script_valid.json
+	@mkdir -p $(@D)
+	@echo "namespace json_tests{" > $@
+	@echo "static unsigned const char script_valid[] = {" >> $@
+	@hexdump -v -e '8/1 "0x%02x, "' -e '"\n"' $< | sed -e 's/0x  ,//g' >> $@
+	@echo "};};" >> $@
+	@echo "Generated $@"
+
+test/%.o: test/%.cpp test/data/tx_invalid.json.h test/data/tx_valid.json.h test/data/script_invalid.json.h test/data/script_valid.json.h
+	$(CXX) -c $(xCXXFLAGS) -DBOOST_TEST_DYN_LINK -o $@ $<
+
 eMarkd: $(OBJS:obj/%=obj/%)
 	$(LINK) $(xCXXFLAGS) -o $@ $^ $(xLDFLAGS) $(LIBS)
+
+test_eMarkd: $(TOBJS:test/%.o=test/%.o)
+	$(LINK) $(xCXXFLAGS) -DBOOST_TEST_DYN_LINK -o $@ $^ $(TOBJSDEP) $(xLDFLAGS) $(LIBS)
 
 clean:
 	-rm -f eMarkd
@@ -189,5 +275,8 @@ clean:
 	-rm -f leveldb/util/*.o
 	-rm -f leveldb/port/*.o
 	-rm -f leveldb/helpers/memenv/*.o
+	-rm -f test/*.o
+	-rm -f test/data/*.json.h
+	-rm -f test_eMarkd
 
 FORCE:

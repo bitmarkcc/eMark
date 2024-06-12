@@ -226,6 +226,7 @@ public:
 
 	// TX Comment
     std::string strTxComment;
+  bool simple;
 
     // Denial-of-service detection:
     mutable int nDoS;
@@ -237,7 +238,7 @@ public:
     }
 
 	    CTransaction(int nVersion, unsigned int nTime, const std::vector<CTxIn>& vin, const std::vector<CTxOut>& vout, unsigned int nLockTime, std::string strTxComment)
-        : nVersion(nVersion), nTime(nTime), vin(vin), vout(vout), nLockTime(nLockTime), strTxComment(strTxComment), nDoS(0) // TX Comment
+	      : nVersion(nVersion), nTime(nTime), vin(vin), vout(vout), nLockTime(nLockTime), strTxComment(strTxComment), nDoS(0), simple(false) // TX Comment
     {
     }
 
@@ -247,13 +248,13 @@ public:
     (
         READWRITE(this->nVersion);
         nVersion = this->nVersion;
-        READWRITE(nTime);
+        if (!simple) READWRITE(nTime);
         READWRITE(vin);
         READWRITE(vout);
         READWRITE(nLockTime);
 
 		// TX Comment
-        READWRITE(strTxComment);
+        if (!simple) READWRITE(strTxComment);
     )
 
     void SetNull()
@@ -266,6 +267,7 @@ public:
 
 		// TX Comment
         strTxComment.clear();
+	simple = false;
 
         nDoS = 0;  // Denial-of-service prevention
     }
@@ -282,7 +284,12 @@ public:
 
     bool IsCoinBase() const
     {
+      if (simple) {
+	return (vin.size()==1 && vin[0].prevout.IsNull());
+      }
+      else {
         return (vin.size() == 1 && vin[0].prevout.IsNull() && vout.size() >= 1);
+      }
     }
 
     bool IsCoinStake() const
