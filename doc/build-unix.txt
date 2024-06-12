@@ -15,6 +15,7 @@ To Build
 
 cd src/
 make -f makefile.unix            # Headless eMark
+make -f makefile.unix test       # unit tests
 
 See readme-qt.rst for instructions on building eMark QT,
 the graphical eMark.
