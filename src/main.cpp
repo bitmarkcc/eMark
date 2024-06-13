@@ -1511,6 +1511,13 @@ bool CBlock::DisconnectBlock(CTxDB& txdb, CBlockIndex* pindex)
     return true;
 }
 
+bool activateCLTV(CBlockIndex* pindex) {
+  if (CBlockIndex::IsSuperMajority(8, pindex->pprev, 900, 1000)) {
+    return true;
+  }
+  return false;
+}
+
 bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
 {
     // Check it again in case a previous version let a bad block in, but skip BlockSig checking
@@ -1518,6 +1525,12 @@ bool CBlock::ConnectBlock(CTxDB& txdb, CBlockIndex* pindex, bool fJustCheck)
         return false;
 
     unsigned int flags = SCRIPT_VERIFY_NOCACHE;
+
+    if (activateCLTV(pindex)) {
+      flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
+      if ((pindex->nVersion & 255) < 8)
+	return false;
+    }
 
     //// issue here: it doesn't know the version
     unsigned int nTxPos;
@@ -2408,7 +2421,7 @@ bool CBlockIndex::IsSuperMajority(int minVersion, const CBlockIndex* pstart, uns
     unsigned int nFound = 0;
     for (unsigned int i = 0; i < nToCheck && nFound < nRequired && pstart != NULL; i++)
     {
-        if (pstart->nVersion >= minVersion)
+      if ((pstart->nVersion & 255) >= minVersion)
             ++nFound;
         pstart = pstart->pprev;
     }

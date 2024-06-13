@@ -103,6 +103,8 @@ You need Berkeley DB. If you have to build Berkeley DB yourself:
 ../dist/configure --enable-cxx
 make
 
+You may need to set BDB_LIB_SUFFIX="-4.8" when running make -f makefile.unix to compile eMarkd
+
 
 Boost
 -----
